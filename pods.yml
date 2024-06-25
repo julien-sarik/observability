@@ -1,0 +1,110 @@
+# Created with podman-4.6.2 generate kube
+apiVersion: v1
+kind: Pod
+metadata:
+  name: observability
+spec:
+  containers:
+  - args:
+    - --config.file=/prometheus.yml
+    image: quay.io/prometheus/prometheus:v2.45.6
+    name: prometheus
+    ports:
+    - containerPort: 9090
+      hostPort: 9090
+    securityContext: {}
+    volumeMounts:
+    - mountPath: /prometheus.yml
+      name: prometheus-config
+  - image: docker.io/postgres:16.3-alpine
+    name: postgres
+    env:
+    - name: POSTGRES_PASSWORD
+      value: pgpwd
+  - args:
+    - start-dev
+    # - --optimized
+    env:
+    - name: KEYCLOAK_ADMIN
+      value: admin
+    - name: KEYCLOAK_ADMIN_PASSWORD
+      value: admin
+    - name: KC_DB
+      value: postgres
+    - name: KC_DB_URL_HOST
+      value: postgres
+    - name: KC_DB_USERNAME
+      value: postgres
+    - name: KC_DB_PASSWORD
+      value: pgpwd
+    - name: KC_DB_URL_DATABASE
+      value: postgres
+    - name: KC_METRICS_ENABLED
+      value: true
+    image: quay.io/keycloak/keycloak:25.0.0
+    name: keycloak
+    ports:
+    - containerPort: 8080
+      hostPort: 8080
+    - containerPort: 9000
+      hostPort: 9000
+  - args:
+    # setting static configuration from CLI
+    # https://doc.traefik.io/traefik/reference/static-configuration/cli/
+    - "--accesslog=true"
+    - "--entryPoints.web.address=:8888"
+    - "--entryPoints.metrics.address=:8889"
+    - "--metrics.prometheus.entryPoint=metrics"
+    - "--metrics.prometheus=true"
+    - "--metrics.prometheus.addEntryPointsLabels=true"
+    - "--metrics.prometheus.addrouterslabels=true"
+    - "--metrics.prometheus.addServicesLabels=true"
+    # if the dynamic config file is named `traefik.yml` then Traefik interprets it as the static config file
+    - "--providers.file.filename=/config.yml"
+    - "--providers.file.watch=true"
+    image: docker.io/traefik:v3.0.1
+    name: traefik
+    ports:
+    - containerPort: 8888
+      hostPort: 8888
+    - containerPort: 8889
+      hostPort: 8889
+    volumeMounts:
+    - mountPath: /config.yml
+      name: traefik-config
+  - image: docker.io/grafana/grafana:10.4.4
+    name: grafana
+    env:
+    - name: GF_PATHS_PROVISIONING
+      value: /usr/share/grafana/conf/provisioning
+    ports:
+    - containerPort: 3000
+      hostPort: 3000
+    volumeMounts:
+    - mountPath: /usr/share/grafana/conf/provisioning/datasources/prometheus.yml
+      name: prometheus-datasource
+    - mountPath: /usr/share/grafana/conf/provisioning/dashboards/dashboard.yml
+      name: dashboard-config
+    - mountPath: /usr/share/grafana/conf/provisioning/dashboards/dashboard.json
+      name: dashboard
+  volumes:
+  - hostPath:
+      path: ./prometheus/prometheus.yml
+      type: File
+    name: prometheus-config
+  - hostPath:
+      path: ./traefik/traefik.yml
+      type: File
+    name: traefik-config
+  - hostPath:
+      path: ./grafana/prometheus-datasource.yml
+      type: File
+    name: prometheus-datasource
+  - hostPath:
+      path: ./grafana/dashboard.yml
+      type: File
+    name: dashboard-config
+  - hostPath:
+      path: ./grafana/dashboard.json
+      type: File
+    name: dashboard
